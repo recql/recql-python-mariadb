@@ -44,9 +44,13 @@ async def mariadb_registry(
     plugin_cfg: dict[str, Any] | None = None,
     dims: int | None = None,
     bindings: DataBindings | None = None,
+    encode_backend: str | None = None,
     warm_models: bool = True,
     **_kwargs: Any,
 ) -> PluginRegistry:
+    if plugin_cfg is None and catalog is not None:
+        from recql.plugins.factory import plugin_config
+        plugin_cfg = plugin_config(catalog, "mariadb")
     cfg = dict(plugin_cfg or {})
     db = handle if isinstance(handle, MariaDb) else MariaDb(handle)
     resolved = bindings or (
@@ -56,7 +60,8 @@ async def mariadb_registry(
     )
     if dims is None:
         dims = _dims_from_catalog(catalog, default=8)
-    encode_backend = str(cfg.get("encode_backend") or "fake")
+    if encode_backend is None:
+        encode_backend = str(cfg.get("encode_backend") or "fake")
     warmed = warm_encoders_for_catalog(catalog, backend=encode_backend, dims=dims)
     encoder = warmed[0] if warmed else get_encoder(backend=encode_backend, dims=dims, warm=True)
 
