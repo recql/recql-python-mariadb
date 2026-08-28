@@ -1,0 +1,43 @@
+services:
+  mariadb:
+    image: ${MARIADB_IMAGE:-mariadb:11.7}
+    container_name: recql-mariadb-test
+    # Default host port 3307 so we don't fight playground MariaDB on 3306.
+    ports:
+      - "${MARIADB_PORT:-3307}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PWD:-RecqlRoot1}
+      MYSQL_DATABASE: recql
+      MYSQL_USER: recql
+      MYSQL_PASSWORD: ${MARIADB_PWD:-recql}
+    volumes:
+      - recql_mariadb_test_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  conformance:
+    build:
+      context: .
+      dockerfile: Dockerfile.conformance
+    container_name: recql-mariadb-conformance
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      RECQL_MARIADB_DSN: mariadb://recql:recql@mariadb:3306/recql
+      RECQL_CORE_MOUNT: /deps/core
+      RECQL_PLAYGROUND_MOUNT: /deps/playground
+      RECQL_PACK_MOUNT: /pack
+    volumes:
+      - ./:/pack
+      - ${RECQL_CORE_PATH:-../recql-python-core}:/deps/core:ro
+      - ${RECQL_PLAYGROUND_PATH:-../recql-playground}:/deps/playground:ro
+    working_dir: /pack
+    profiles: ["conformance"]
+
+volumes:
+  recql_mariadb_test_data:

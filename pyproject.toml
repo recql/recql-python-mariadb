@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recql-mariadb"
+version = "0.1.0"
+description = "RecQL mariadb backend plugin"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+  "recql>=0.1.0",
+  "aiomysql>=0.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/recql/recql-python-mariadb"
+Repository = "https://github.com/recql/recql-python-mariadb"
+
+[project.entry-points."recql.backends"]
+mariadb = "recql_mariadb:open_registry"
+maria = "recql_mariadb:open_registry"
+mysql = "recql_mariadb:open_registry"
+
+[project.entry-points."recql.dialects"]
+mariadb = "recql_mariadb.dialect:register"
+maria = "recql_mariadb.dialect:register"
+mysql = "recql_mariadb.dialect:register"
+
+[project.entry-points."recql.connectors"]
+mariadb = "recql_mariadb.connect:open_connection"
+maria = "recql_mariadb.connect:open_connection"
+mysql = "recql_mariadb.connect:open_connection"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recql_mariadb*"]
+
+[tool.setuptools.package-data]
+recql_mariadb = ["queries.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+["tests"]
+pythonpath = ["."]
