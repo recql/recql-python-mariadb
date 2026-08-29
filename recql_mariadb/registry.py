@@ -54,7 +54,7 @@ async def mariadb_registry(
     cfg = dict(plugin_cfg or {})
     db = handle if isinstance(handle, MariaDb) else MariaDb(handle)
     resolved = bindings or (
-        bindings_from_catalog(catalog)
+        bindings_from_catalog(catalog, backend="mariadb")
         if catalog is not None
         else default_fixture_bindings(backend="mariadb")
     )
@@ -84,8 +84,8 @@ async def mariadb_registry(
     ids = TemplateCandidateIdsRetriever(
         ex, default_backend="mariadb", supports_prefilter_fn=supports_prefilter
     )
-    sim = MariaDBSimilarityRetriever(db, dims=dims, plugin_cfg=cfg)
-    text = MariaDBTextSearchRetriever(db, encoder=encoder, plugin_cfg=cfg)
+    sim = MariaDBSimilarityRetriever(db, dims=dims, plugin_cfg=cfg, bindings=resolved)
+    text = MariaDBTextSearchRetriever(db, encoder=encoder, plugin_cfg=cfg, bindings=resolved)
     model_scorer = MariaDBModelScorer(db, catalog=catalog, bindings=resolved)
 
     registry = PluginRegistry(

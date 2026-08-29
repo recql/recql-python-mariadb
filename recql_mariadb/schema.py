@@ -11,11 +11,11 @@ from recql_mariadb.db import MariaDb, execute
 def pagination_seen_ddl(kv: PaginationKvBinding | None = None) -> str:
     b = kv or PaginationKvBinding()
     return f"""
-CREATE TABLE IF NOT EXISTS {b.from_sql} (
-  {b.key_column} VARCHAR(512) NOT NULL,
-  {b.item_id_column} VARCHAR(128) NOT NULL,
-  {b.expires_at_column} TIMESTAMP(6) NOT NULL,
-  PRIMARY KEY ({b.key_column}, {b.item_id_column})
+CREATE TABLE IF NOT EXISTS `{b.from_sql}` (
+  `{b.key_column}` VARCHAR(512) NOT NULL,
+  `{b.item_id_column}` VARCHAR(128) NOT NULL,
+  `{b.expires_at_column}` TIMESTAMP(6) NOT NULL,
+  PRIMARY KEY (`{b.key_column}`, `{b.item_id_column}`)
 )
 """
 

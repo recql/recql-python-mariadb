@@ -29,8 +29,8 @@ class MariaDBKvStore(KvStore):
         rows = await fetch_all(
             self.db,
             f"""
-            SELECT {b.item_id_column} AS item_id FROM {b.from_sql}
-            WHERE {b.key_column} = %s AND {b.expires_at_column} > CURRENT_TIMESTAMP(6)
+            SELECT `{b.item_id_column}` AS item_id FROM `{b.from_sql}`
+            WHERE `{b.key_column}` = %s AND `{b.expires_at_column}` > CURRENT_TIMESTAMP(6)
             """,
             [key],
         )
@@ -46,10 +46,10 @@ class MariaDBKvStore(KvStore):
             await execute(
                 self.db,
                 f"""
-                INSERT INTO {b.from_sql}
-                  ({b.key_column}, {b.item_id_column}, {b.expires_at_column})
+                INSERT INTO `{b.from_sql}`
+                  (`{b.key_column}`, `{b.item_id_column}`, `{b.expires_at_column}`)
                 VALUES (%s, %s, %s)
-                ON DUPLICATE KEY UPDATE {b.expires_at_column} = VALUES({b.expires_at_column})
+                ON DUPLICATE KEY UPDATE `{b.expires_at_column}` = VALUES(`{b.expires_at_column}`)
                 """,
                 [key, iid, expires],
             )
