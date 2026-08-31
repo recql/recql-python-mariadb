@@ -72,6 +72,72 @@ class MariaDBSimilarityRetriever(Retriever):
     def supports_prefilter(self, expr: A.Expr | str | None) -> bool:
         return supports_prefilter("similarity", expr)
 
+    async def lookup_vector(
+        self,
+        embedding_ref: str,
+        entity_type: str,
+        entity_id: str,
+        *,
+        req: RetrieveRequest | None = None,
+    ) -> list[float] | None:
+        bindings = self.bindings or (_bindings(req) if req else None)
+        if not bindings:
+            return None
+        renderer = QueryRenderer(bindings)
+        emb = bindings.embedding_store_for(str(embedding_ref or "als"), entity_type)
+        emb_name = str(embedding_ref) if emb.name_column else None
+        lookup_structural, lookup_binds = renderer.embedding_structural(
+            emb,
+            embedding_name=emb_name,
+            entity_type=entity_type if emb.entity_type_column else None,
+        )
+        sql, args = renderer.render(
+            "embedding_lookup",
+            structural=lookup_structural,
+            binds={"entity_id": str(entity_id), **lookup_binds},
+            store=emb,
+        )
+        row = await fetch_one(self.db, sql, args)
+        if row is not None and row.get("embedding") is not None:
+            return _parse_embedding(row["embedding"])
+        return None
+
+    async def lookup_vectors(
+        self,
+        embedding_ref: str,
+        entity_type: str,
+        entity_ids: list[str],
+        *,
+        req: RetrieveRequest | None = None,
+    ) -> dict[str, list[float]]:
+        out: dict[str, list[float]] = {}
+        for eid in entity_ids:
+            v = await self.lookup_vector(embedding_ref, entity_type, eid, req=req)
+            if v is not None:
+                out[eid] = v
+        return out
+
+    async def lookup_interactions(
+        self,
+        user_id: str,
+        limit: int = 10,
+        *,
+        req: RetrieveRequest | None = None,
+    ) -> list[str]:
+        bindings = self.bindings or (_bindings(req) if req else None)
+        if not bindings:
+            return []
+        renderer = QueryRenderer(bindings)
+        inter = bindings.interactions
+        sql, args = renderer.render(
+            "interaction_items_for_user",
+            structural=renderer.entity_structural(inter),
+            binds={"entity_id": str(user_id), "limit": limit},
+            entity=inter,
+        )
+        rows = await fetch_all(self.db, sql, args)
+        return [str(r["item_id"]) for r in rows[:limit]]
+
     async def retrieve(self, req: RetrieveRequest) -> RetrieveBag:
         step = req.step
         name = getattr(step, "name", None) or "similarity"
@@ -86,45 +152,42 @@ class MariaDBSimilarityRetriever(Retriever):
         enc = getattr(step, "query_encoder", None)
         etype = getattr(enc, "type", None) if enc is not None else None
 
-        qvec: str | None = None
-        if etype == "precomputed_user":
+        qvec_str: str | None = None
+        qvec = getattr(step, "query_vector", None) or (
+            req.params.get("__query_vector__") if req.params else None
+        )
+        if qvec is None and etype == "vector":
+            qvec = getattr(enc, "vector", None)
+
+        if qvec is not None:
+            qvec_str = vec_literal(_parse_embedding(qvec))
+        elif etype == "precomputed_user":
             uid = str(_resolve_param(enc.input_user_id, req.params or {}))
-            emb = bindings.embedding_store_for(str(emb_ref), "user")
-            emb_name = str(emb_ref) if emb.name_column else None
-            lookup_structural, lookup_binds = renderer.embedding_structural(
-                emb,
-                embedding_name=emb_name,
-                entity_type="user" if emb.entity_type_column else None,
-            )
-            sql, args = renderer.render(
-                "embedding_lookup",
-                structural=lookup_structural,
-                binds={"entity_id": uid, **lookup_binds},
-                store=emb,
-            )
-            row = await fetch_one(self.db, sql, args)
-            if row is None:
+            vec = await self.lookup_vector(str(emb_ref), "user", uid, req=req)
+            if vec is None:
                 return RetrieveBag(name=str(name), candidates=[])
-            qvec = vec_literal(_parse_embedding(row["embedding"]))
+            qvec_str = vec_literal(vec)
         elif etype == "precomputed_item":
             iid = str(_resolve_param(enc.input_item_id, req.params or {}))
-            emb = bindings.embedding_store_for(str(emb_ref), "item")
-            emb_name = str(emb_ref) if emb.name_column else None
-            lookup_structural, lookup_binds = renderer.embedding_structural(
-                emb,
-                embedding_name=emb_name,
-                entity_type="item" if emb.entity_type_column else None,
-            )
-            sql, args = renderer.render(
-                "embedding_lookup",
-                structural=lookup_structural,
-                binds={"entity_id": iid, **lookup_binds},
-                store=emb,
-            )
-            row = await fetch_one(self.db, sql, args)
-            if row is None:
+            vec = await self.lookup_vector(str(emb_ref), "item", iid, req=req)
+            if vec is None:
                 return RetrieveBag(name=str(name), candidates=[])
-            qvec = vec_literal(_parse_embedding(row["embedding"]))
+            qvec_str = vec_literal(vec)
+        elif etype == "interaction_pooling":
+            from recql.encode.pooling import pool_vectors
+
+            uid = str(_resolve_param(enc.input_user_id, req.params or {}))
+            trunc = int(getattr(enc, "truncate_interactions", 10) or 10)
+            item_ids = await self.lookup_interactions(uid, limit=trunc, req=req)
+            if not item_ids:
+                return RetrieveBag(name=str(name), candidates=[])
+            vecs_map = await self.lookup_vectors(str(emb_ref), "item", item_ids, req=req)
+            vec_list = [vecs_map[i] for i in item_ids if i in vecs_map]
+            if not vec_list:
+                return RetrieveBag(name=str(name), candidates=[])
+            p_func = str(getattr(enc, "pooling_function", "mean") or "mean")
+            pooled = pool_vectors(vec_list, pooling_function=p_func)
+            qvec_str = vec_literal(pooled)
         else:
             raise ExecuteError(f"encoder type {etype} not implemented yet")
 
@@ -138,7 +201,7 @@ class MariaDBSimilarityRetriever(Retriever):
         sql, args = renderer.render(
             "embedding_similarity_search",
             structural={**renderer.entity_structural(items), **search_structural},
-            binds={"query_vector": qvec, "limit": limit, **search_binds},
+            binds={"query_vector": qvec_str, "limit": limit, **search_binds},
             store=search_emb,
         )
         rows = await fetch_all(self.db, sql, args)
